@@ -32,6 +32,9 @@ const defaultSettings = {
     rateShowDelay: 5,
     showTimeEstimate: true,
     averageIgnorePeriod: 3,
+    enableHighlight: false,
+    highlightTargetRate: 0.2,
+    highlightColor: '#FF0000',
 };
 
 function splitToHourMinSec(timeSec) {
@@ -53,6 +56,15 @@ function getTimeString(hourMinSec, includeSec=true) {
     const secondString = (secondZero+sec).slice(-2)+'s';
 
     return hourString + minuteString + (includeSec ? secondString : '');
+}
+
+function hexToRgb(hex) {
+    var result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
 }
 
 function setCurrentTimerStats() {
@@ -81,6 +93,20 @@ function setCurrentTimerStats() {
     if (showRate) {
         const formattedRate = formatRate(reviewRate, 'short');
         statHtmlElems.rate.getLabel().textContent = (hideRateRemaining ? '—' : formattedRate) + '';
+    }
+
+    const highlight = wkof.settings[scriptId].enableHighlight;
+    if (highlight && reviewsDoneNumber >= wkof.settings[scriptId].highlightItemThreshold) {
+        const targetRateUserUnits = wkof.settings[scriptId].highlightTargetRate;
+        const targetRateRPS = rpsFromUserUnits(targetRateUserUnits);
+        const highlightColor = hexToRgb(wkof.settings[scriptId].highlightColor);
+        const r = highlightColor.r;
+        const g = highlightColor.g;
+        const b = highlightColor.b;
+        const targetProximity = reviewRate / targetRateRPS;
+        const a = (1 - Math.min(1, targetProximity));
+        console.log("reviewRate: " + reviewRate + ", targetProximity: " + targetProximity + ", a: " + a);
+        statHtmlElems.parent.style.cssText = `background-color: rgba(${r},${g},${b},${a});`
     }
 
     const reviewsAvailableNumber = parseInt(
@@ -165,11 +191,13 @@ function generateStatHtmlElems() {
         parent.appendChild(timer.div);
         parent.appendChild(rate.div);
         parent.appendChild(remaining.div);
+        statHtmlElems.parent = parent;
     } else if (location == 'toprightleft') {
         const parent = document.getElementsByClassName('quiz-statistics')[0];
         parent.prepend(remaining.div);
         parent.prepend(rate.div);
         parent.prepend(timer.div);
+        statHtmlElems.parent = parent;
     } else if (location == 'bottom') {
         const parent = document.getElementById('additional-content');
         const bottomMenu = document.createElement('div');
@@ -179,6 +207,7 @@ function generateStatHtmlElems() {
         bottomMenu.appendChild(remaining.div);
         bottomMenu.className = "additional-content__menu wkrc_bottom"
         parent.append(bottomMenu);
+        statHtmlElems.parent = parent;
     }
     statHtmlElems.updateVisibility();
 }
@@ -316,12 +345,25 @@ function formatRate(rps, format) {
     } else if (units == 'mp100r') {
         res = 1/rps/60*100;
     }
-    if (format == 'short') {
+    if (format == 'raw') {
+        return res.toFixed(1);
+    } else if (format == 'short') {
         return res.toFixed(1) + ' ' + shortUnitNames[units];
     } else {
         return res.toFixed(1) + ' ' + unitNames[units];
     }
 
+}
+
+function rpsFromUserUnits(rate) {
+    const units = window.wkof ? wkof.settings[scriptId].units : defaultSettings.units;
+    if (units == 'rph') {
+        return rate/3600;
+    } else if (units == 'rpm') {
+        return rate/60;
+    } else if (units == 'mp100r') {
+        return 1/rate/60*100;
+    }
 }
 
 function openSettings() {
@@ -414,6 +456,40 @@ function openSettings() {
                                 hover_tip: 'The number of minutes that the review rate and time estimate should be hidden for at the beginning of a session.',
                                 default: defaultSettings.rateShowDelay,
                                 min: 0
+                            }
+                        }
+                    },
+                    highlightGroup: {
+                        type: 'group',
+                        label: 'Highlight When Slow',
+                        content: {
+                            highlightInfo: {
+                                type: 'html',
+                                html: 'Highlight the background of the review stats when the review rate is slower than a specified value.'
+                            },
+                            enableHighlight: {
+                                type: 'checkbox',
+                                label: 'Enabled',
+                                default: defaultSettings.enableHighlight,
+                                hover_tip: 'Enable highlighting the review stats when the review rate is too slow.'
+                            },
+                            highlightTargetRate: {
+                                type: 'number',
+                                label: `Target Rate (${shortUnitNames[wkof.settings[scriptId].units]})`,
+                                default: formatRate(defaultSettings.highlightTargetRate, 'raw'),
+                                hover_tip: 'The target review rate that the review rate should be compared to. Measured in the user-specified speed units.',
+                            },
+                            highlightColor: {
+                                type: 'color',
+                                label: 'Highlight Color',
+                                default: defaultSettings.highlightColor,
+                                hover_tip: 'The color of the highlight.',
+                            },
+                            highlightItemThreshold: {
+                                type: 'number',
+                                label: 'Highlight Item Threshold',
+                                default: 3,
+                                hover_tip: 'The number of reviews that need to be completed before the highlight is shown.'
                             }
                         }
                     }
